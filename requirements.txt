@@ -1,0 +1,4 @@
+flask
+rsa
+pyjwt
+gunicorn
