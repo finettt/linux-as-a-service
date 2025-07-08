@@ -12,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 
 class Session():
     def __init__(self,id: int):
+        if type(id) is not int:
+            raise TypeError("Type of id might be int!")
         self.__rsa_private = ""
         self.id = id
         self.__token = ""
@@ -42,7 +44,7 @@ class Session():
         else:
             return False
 
-    def __decrypt_password(self, hex_cipher: str):
+    def decrypt_password(self, hex_cipher: str):
         cipherpassword = bytes.fromhex(hex_cipher)
         dec_password = ""
         try:
