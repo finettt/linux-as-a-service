@@ -11,7 +11,7 @@ import rsa
 import os
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
-
+load_dotenv()
 
 class Session():
     session_ttl = os.getenv("SESSION_TTL")
@@ -25,7 +25,7 @@ class Session():
         self.history = History([])
         self.__pwd = "/"
     def generate_token(self, username: str):
-        if self.__secret_key==None:
+        if self.__secret_key is None:
             raise ValueError("Set secret key before generating token!")
         payload = {
             "user_id": self.id,

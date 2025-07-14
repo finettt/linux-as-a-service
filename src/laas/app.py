@@ -1,6 +1,6 @@
 from functools import wraps
 import os
-from flask import Flask, abort, jsonify, request
+from flask import Flask, jsonify, request
 from src.laas.session_manager import SessionManager
 from redis import Redis
 from dotenv import load_dotenv

@@ -1,6 +1,5 @@
 import json
-import os
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional, Union
 from src.laas.exceptions.AnotherKeyError import AnotherKeyError
 from src.laas.session import Session
 import redis
