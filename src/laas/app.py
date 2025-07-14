@@ -1,11 +1,16 @@
 from functools import wraps
+import os
 from flask import Flask, abort, jsonify, request
-
 from src.laas.session_manager import SessionManager
+from redis import Redis
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 app = Flask(__name__)
-session_mgr = SessionManager()
+redis = Redis("redis",6379,0,username=os.getenv("REDIS_USER"), password=os.getenv("REDIS_USER_PASSWORD"))
+session_mgr = SessionManager(redis_client=redis)
 
 def auth_required(func):
     @wraps(func)

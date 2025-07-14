@@ -1,73 +1,103 @@
-from typing import List, Optional
+import json
+import os
+from typing import Dict, List, Optional, Union
+from src.laas.exceptions.AnotherKeyError import AnotherKeyError
 from src.laas.session import Session
-
-
+import redis
 import rsa
 
-
 class SessionManager():
-    def __init__(self):
-        self.__sessions: List[Session] = []
+    SESSION_COUNTER = 'laas:sessions:counter'
+    SESSIONS = 'laas:session:{id}'
+    TOKENS = 'laas:token:{token}'
+    PRIVATE_KEYS = 'laas:private_key:{id}'
+    PRIVATE_KEY_TTL = 300
+    RSA_KEY_SIZE = 512 #FIXME: Increase RSA key to 2048
 
+
+    def __init__(self, redis_client: redis.Redis):
+        self.redis = redis_client
+    
     def get_free_id(self) -> int:
-        existing_ids = sorted([obj.id for obj in self.__sessions])
-        if not existing_ids:
-            return 0
-        if existing_ids[0] != 0:
-            return 0
-        for i in range(len(existing_ids) - 1):
-            if existing_ids[i+1] > existing_ids[i] + 1:
-                return existing_ids[i] + 1
-        return existing_ids[-1] + 1
+        next_id = self.redis.incr(SessionManager.SESSION_COUNTER)
+        return next_id
 
-    def request_session(self):
+    def request_session(self) -> Dict[str, Union[int, Dict[str, int]]]:
         free_id = self.get_free_id()
         new_session = Session(id=free_id)
-        (publicKey, privateKey) = rsa.newkeys(2048)
+        (publicKey, privateKey) = rsa.newkeys(SessionManager.RSA_KEY_SIZE)
         new_session.set_rsa_private(privateKey)
         self.__append_session(new_session)
         publicKey_json = {
             'n': publicKey.n,
             'e': publicKey.e
         }
-        return {"id":free_id,"pubKey": publicKey_json}
+        return {"id": free_id, "pubKey": publicKey_json}
+
+    def __delete_session(self, session: Session):
+        token = session.get_token()
+        if token:
+            self.redis.delete(SessionManager.TOKENS.format(token=token))
+        self.redis.delete(SessionManager.SESSIONS.format(id=session.id))
+        return True
 
     def register_session(self, session_id: int, username: str, hex_cipher: str):
-        session: Session = self.find_session_by_id(session_id)
-        if session!=None:
+        session_dump = self.find_session_by_id(session_id)
+        if session_dump is not None:
+            private_key = self.redis.get(SessionManager.PRIVATE_KEYS.format(id=session_dump.get("id")))
+            session: Session = Session.from_dict(session_dump, private_key)
             try:
                 secret_key = session.decrypt_password(hex_cipher=hex_cipher)
-            except ValueError as e:
-                return {"error":f"Invalid cipher: {str(e)}"}
+            except AnotherKeyError as e:
+                return {"error": f"Invalid cipher: {str(e)}"}
             
             session.set_secret_key(secret_key=secret_key)
-            return {"id":session_id, "token":session.generate_token(username=username)}
+            
+            data = {"id": session_id, "token": session.generate_token(username=username)}
+            pipe = self.redis.pipeline()
+            pipe.set(SessionManager.SESSIONS.format(id=session_id),json.dumps(session.to_dict()))
+            pipe.set(SessionManager.TOKENS.format(token=session.get_token()),session_id)
+            pipe.execute()
+            self.redis.delete(SessionManager.PRIVATE_KEYS.format(id=session_dump.get("id")))
+            session.set_rsa_private(None)
+            return data
         else:
-            return {"error":f"Session {session_id} does not exists!"}
-        
-    def auth_session(self, session_id: int, encoded_jwt: str):
-        session: Session = self.find_session_by_id(session_id)
-        if session!=None:
-            val_result = session.validate(encoded_jwt)
-            if val_result.get("val") != "Session validation success!":
-                return val_result
-            else:
-                return {"auth": "Session auth success!"}
-        else:
-            return {"error":f"Session {session_id} does not exists!"}
-    def find_session_by_id(self,id: int) -> Optional[Session]:
-        session: Session = next((tmp_session for tmp_session in self.__sessions if tmp_session.id == id), None)
-        return session
+            return {"error": f"Session {session_id} does not exist!"}
 
-    def find_session_by_token(self,token: str) -> Optional[Session]:
-        session: Session = next((tmp_session for tmp_session in self.__sessions if tmp_session.get_token() == token), None)
-        return session
-    
-    def get_session_c(self):
-        return len(self.__sessions)
-    
-    def get_sessions(self):
-        return [{"id":obj.id,"token":obj.get_token()} for obj in self.__sessions]
-    
+    def auth_session(self, session_id: int, encoded_jwt: str):
+        session_dump = self.find_session_by_id(session_id)
+        if session_dump is not None:
+            session: Session = Session.from_dict(session_dump)
+            val_result = session.validate(encoded_jwt)
+            if val_result.get("val") == "Session validation success!":
+                return {"auth": "Session auth success!"}
+            elif val_result.get("error")=="Session has expired!":
+                self.__delete_session(session)
+            else:
+                return val_result
+        else:
+            return {"error": f"Session {session_id} does not exist!"}
+
+    def find_session_by_id(self, id: int) -> Optional[Dict]:
+        session_dump = self.redis.get(SessionManager.SESSIONS.format(id=id))
+        if session_dump:
+            try:
+                session = json.loads(session_dump)
+            except json.decoder.JSONDecodeError:
+                # FIXME: This may silently fail. Should log invalid session dumps.
+                return None
+        else:
+            return None
+
+    def find_session_by_token(self, token: str) -> Optional[Dict]:
+        session_id = self.redis.get(SessionManager.TOKENS.format(token=token))
+        if session_id:
+            return self.find_session_by_id(int(session_id))
+        else:
+            return None
+
     def __append_session(self, session: Session):
-        self.__sessions.append(session)
+        with self.redis.pipeline() as pipe:
+            pipe.set(SessionManager.PRIVATE_KEYS.format(id=session.id),session.get_rsa_private(),SessionManager.PRIVATE_KEY_TTL)
+            pipe.set(SessionManager.SESSIONS.format(id=session.id),json.dumps(session.to_dict()))
+            pipe.execute()

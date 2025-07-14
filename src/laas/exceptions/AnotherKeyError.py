@@ -1,0 +1,3 @@
+class AnotherKeyError(Exception):
+    pass
+

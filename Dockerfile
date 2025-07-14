@@ -8,4 +8,4 @@ RUN pip install --upgrade pip && \
 
 COPY . .
 
-CMD ["gunicorn", "--workers", "4", "--bind","0.0.0.0:8000", "wsgi:app"]
+CMD ["gunicorn", "--workers", "1", "--bind","0.0.0.0:8000", "wsgi:app"]
