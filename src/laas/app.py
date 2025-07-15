@@ -1,5 +1,6 @@
 from functools import wraps
 import os
+from typing import Dict, Optional
 from flask import Flask, jsonify, request
 from src.laas.session import Session
 from src.laas.session_manager import SessionManager
@@ -31,15 +32,17 @@ def auth_required(func):
             return jsonify({"error": "Invalid Authorization header format"}), 401
 
         jwt_token = auth_header.split(" ")[1]
-        session = session_mgr.find_session_by_token(token=jwt_token)
+        session: Optional[Dict] = session_mgr.find_session_by_token(token=jwt_token)
         if session is None:
             return jsonify({"error": "Invalid authentication token"}), 401
 
-        res = session_mgr.auth_session(session_id=session.id, encoded_jwt=jwt_token)
+        res = session_mgr.auth_session(
+            session_id=int(session.get("id")), encoded_jwt=jwt_token
+        )
         if "error" in res:
             return jsonify({"error": "Authentication failed"}), 401
 
-        kwargs["session_id"] = session.id
+        kwargs["session_id"] = session.get("id")
         return func(*args, **kwargs)
 
     return wrapper
@@ -50,19 +53,23 @@ def auth_required(func):
 @auth_required
 def command(session_id):
     if request.method == "POST":
-        data = request.get_json()
-        user_input = data.get("command", "").strip()
+        data: Dict = request.get_json()
+        user_input = str(data.get("command", "").strip())
 
         if not user_input:
             return jsonify({"error": "No command provided"}), 400
 
-        session = session_mgr.find_session_by_id(session_id)
-        result = session.execute_command(user_input)
+        session: Optional[Dict] = session_mgr.find_session_by_id(session_id)
+        result: str = session.execute_command(user_input)
         return jsonify(result)
     elif request.method == "GET":
-        session: Session = session_mgr.find_session_by_id(session_id)  # ty: ignore
+        session: Dict = session_mgr.find_session_by_id(session_id)
         return jsonify(
-            {"id": session.id, "pwd": session.get_pwd(), "history": session.history}
+            {
+                "id": session.get(id),
+                "pwd": session.get("pwd"),
+                "history": session.get("history"),
+            }
         )
 
 

@@ -78,7 +78,7 @@ class Session:
 
     # FIXME: Критическая уязвимость! Использование shell=True позволяет инъекциям.
     # FIXME: Всегда используйте shell=False и передавайте команду как список аргументов.
-    def execute_command(self, command):
+    def execute_command(self, command: str):
         result = execute_command(cmdline=command, cwd=self.__pwd)
         self.history.add(
             {
