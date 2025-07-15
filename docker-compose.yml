@@ -3,8 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        - USERNAME=value
     ports:
       - "8000:8000"
     deploy:
@@ -19,7 +17,6 @@ services:
 
     environment:
       - SESSION_TTL=${SESSION_TTL}
-      - MASTER_KEY=${MASTER_KEY}
   redis:
     image: redis:latest
     container_name: redis_container

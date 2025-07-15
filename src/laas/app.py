@@ -1,6 +1,7 @@
 from functools import wraps
 import os
 from flask import Flask, jsonify, request
+from src.laas.session import Session
 from src.laas.session_manager import SessionManager
 from redis import Redis
 from dotenv import load_dotenv
@@ -52,7 +53,7 @@ def command(session_id):
         result = session.execute_command(user_input)
         return jsonify(result)
     elif request.method == "GET":
-        session = session_mgr.find_session_by_id(session_id)
+        session: Session = session_mgr.find_session_by_id(session_id) #ty: ignore
         return jsonify({"id":session.id,"pwd": session.get_pwd(), "history": session.history})
 
 @app.get("/auth/new")
@@ -69,11 +70,3 @@ def create_client():
         return jsonify({"error": "Missing required parameters: id or username"}), 400
     else:
         return jsonify(session_mgr.register_session(session_id=session_id,username=username,hex_cipher=hex_cipher))
-    
-
-@app.get("/debug/sessions")
-def debug_1():
-    return jsonify({
-        "session_c": session_mgr.get_session_c(),
-        "sessions": session_mgr.get_sessions()
-    })

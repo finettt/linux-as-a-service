@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY requirements/common.txt .
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r common.txt
 
 COPY . .
 

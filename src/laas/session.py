@@ -1,3 +1,4 @@
+# FIXME: Для Python 3.9+ используйте встроенный dict. Для обратной совместимости оставлено.
 from typing import Dict
 from src.laas.exceptions.AnotherKeyError import AnotherKeyError
 from src.laas.history import History
@@ -14,7 +15,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Session():
-    session_ttl = os.getenv("SESSION_TTL")
+    # FIXME: Небезопасное преобразование типа - используйте float(os.getenv(...)) с обработкой исключений
+    session_ttl = os.getenv("SESSION_TTL") or 0.5
     def __init__(self,id: int):
         if type(id) is not int:
             raise TypeError("Type of id might be int!")
@@ -48,6 +50,8 @@ class Session():
         else:
             return False
 
+    # FIXME: Уязвимость! Режим ECB небезопасен. Используйте CBC/GCM с случайным IV.
+    # FIXME: Добавьте проверку подписи для защиты от подделки данных.
     def decrypt_password(self, hex_cipher: str):
         cipherpassword = bytes.fromhex(hex_cipher)
         dec_password = ""
@@ -64,6 +68,8 @@ class Session():
     def set_secret_key(self,secret_key):
         self.__secret_key = secret_key
 
+    # FIXME: Критическая уязвимость! Использование shell=True позволяет инъекциям.
+    # FIXME: Всегда используйте shell=False и передавайте команду как список аргументов.
     def execute_command(self,command):
         result = execute_command(cmdline=command,cwd=self.__pwd)
         self.history.add({
@@ -72,6 +78,9 @@ class Session():
         })
         return result
 
+    # FIXME: Добавьте явную проверку алгоритма для предотвращения атак downgrade
+    # FIXME: Пример: algorithms=["HS256"] -> options={"verify_signature": True},
+    #         с явным указанием ожидаемого алгоритма
     def validate(self,jwt_token):
         try:
             jwt.decode(jwt_token, self.__secret_key, algorithms=["HS256"])
@@ -101,15 +110,15 @@ class Session():
                 'p': self.__rsa_private.p,
                 'q': self.__rsa_private.q,
                 'n': self.__rsa_private.n,
-                },
+                }
 
     @classmethod
+    # FIXME: Антипаттерн! Метод класса должен возвращать экземпляр, а не изменять состояние класса.
+    # FIXME: Перепишите метод для создания и возврата нового экземпляра Session.
     def from_dict(self, session_dict: Dict, rsa_private):
         self.id: int = session_dict.get("id")
         self.__token = session_dict.get("token")
-        self.set_secret_key(
-            session_dict.get("secret")
-        )
-        self.set_rsa_private(rsa_private=rsa_private)
-        self.history = History(session_dict.get("history"))
+        self.__secret_key = session_dict.get("secret")
+        self.__rsa_private = rsa_private
+        self.history = History(session_dict.get("history") or [])
         self.__pwd = session_dict.get("pwd")
