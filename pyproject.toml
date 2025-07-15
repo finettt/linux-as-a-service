@@ -1,0 +1,26 @@
+[project]
+name = "LaaS"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.1.1",
+    "gunicorn>=23.0.0",
+    "pyjwt>=2.10.1",
+    "python-dotenv>=1.1.1",
+    "redis>=6.2.0",
+    "rsa>=4.9.1",
+]
+
+[dependency-groups]
+dev = [
+    "flask>=3.1.1",
+    "gunicorn>=23.0.0",
+    "pyjwt>=2.10.1",
+    "python-dotenv>=1.1.1",
+    "redis>=6.2.0",
+    "rsa>=4.9.1",
+    "ruff>=0.12.3",
+    "ty>=0.0.1a14",
+]

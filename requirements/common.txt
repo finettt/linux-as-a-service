@@ -1,6 +1,0 @@
-flask
-rsa
-pyjwt
-gunicorn
-redis
-python-dotenv
