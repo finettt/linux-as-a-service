@@ -1,9 +1,13 @@
 import json
+import logging
 from typing import Dict, Optional, Union
 from src.laas.exceptions.AnotherKeyError import AnotherKeyError
 from src.laas.session import Session
 import redis
 import rsa
+
+# BUG: Неправильная инициализация логгера - нужно использовать logging.getLogger()
+logger = logging.getLogger("my_logger")
 
 
 class SessionManager:
@@ -12,12 +16,15 @@ class SessionManager:
     TOKENS = "laas:token:{token}"
     PRIVATE_KEYS = "laas:private_key:{id}"
     PRIVATE_KEY_TTL = 300
+    # BUG: RSA ключ 512 бит крайне небезопасен, минимум 2048 (как указано в FIXME)
     RSA_KEY_SIZE = 512  # FIXME: Increase RSA key to 2048
 
     def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
 
     def get_free_id(self) -> int:
+        # BUG: Потенциальная race condition - между получением ID и созданием сессии
+        # другой процесс может использовать тот же ID
         next_id = self.redis.incr(SessionManager.SESSION_COUNTER)
         return next_id
 
@@ -35,15 +42,13 @@ class SessionManager:
         if token:
             self.redis.delete(SessionManager.TOKENS.format(token=token))
         self.redis.delete(SessionManager.SESSIONS.format(id=session.id))
+        # BUG: Не удаляется приватный ключ из PRIVATE_KEYS
         return True
 
     def register_session(self, session_id: int, username: str, hex_cipher: str):
-        session_dump = self.find_session_by_id(session_id)
+        session_dump: Session = self.find_session_by_id(int(session_id))
         if session_dump is not None:
-            private_key = self.redis.get(
-                SessionManager.PRIVATE_KEYS.format(id=session_dump.get("id"))
-            )
-            session = Session.from_dict(session_dump, private_key)
+            session = session_dump
             try:
                 secret_key = session.decrypt_password(hex_cipher=hex_cipher)
             except AnotherKeyError as e:
@@ -55,65 +60,67 @@ class SessionManager:
                 "id": session_id,
                 "token": session.generate_token(username=username),
             }
-            pipe = self.redis.pipeline()
-            pipe.set(
-                SessionManager.SESSIONS.format(id=session_id),
-                json.dumps(session.to_dict()),
-            )
-            pipe.set(
-                SessionManager.TOKENS.format(token=session.get_token()), session_id
-            )
-            pipe.execute()
-            self.redis.delete(
-                SessionManager.PRIVATE_KEYS.format(id=session_dump.get("id"))
-            )
+            with self.redis.pipeline() as pipe:
+                pipe.set(
+                    SessionManager.SESSIONS.format(id=session_id),
+                    json.dumps(session.to_dict()),
+                )
+                pipe.set(
+                    SessionManager.TOKENS.format(token=session.get_token()), session_id
+                )
+                pipe.delete(SessionManager.PRIVATE_KEYS.format(id=session.id))
+                pipe.execute()
             session.set_rsa_private(None)
             return data
         else:
-            return {"error": f"Session {session_id} does not exist!"}
+            return {
+                "error": f"Session {session_id} does not exist!",
+                "data": json.loads(
+                    self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id))
+                ),
+                "id": session_id,
+            }
 
     def auth_session(self, session_id: int, encoded_jwt: str):
         session_dump = self.find_session_by_id(session_id)
+
         if session_dump is not None:
-            session: Session = Session.from_dict(
-                session_dump,
-                self.redis.get(
-                    SessionManager.PRIVATE_KEYS.format(id=session_dump.get("id"))
-                ),
-            )
+            session: Session = session_dump
             val_result = session.validate(encoded_jwt)
             if val_result.get("val") == "Session validation success!":
                 return {"auth": "Session auth success!"}
             elif val_result.get("error") == "Session has expired!":
                 self.__delete_session(session)
+                # BUG: Нет return после удаления сессии - код продолжит выполнение
             else:
                 return val_result
         else:
-            return {"error": f"Session {session_id} does not exist!"}
+            return {
+                "error": f"Session {session_id} does not exist!",
+                "data": session_dump,
+                "id": session_id,
+            }
 
     def find_session_by_id(self, id: int) -> Optional[Session]:
         session_dump = self.redis.get(SessionManager.SESSIONS.format(id=id))
-        if session_dump:
-            try:
-                session = json.loads(session_dump)
-                session = Session.from_dict(
-                    session_dict=session,
-                    rsa_private=self.redis.get(
-                        SessionManager.PRIVATE_KEYS.format(id=session.get("id"))
-                    ),
-                )
-            except json.decoder.JSONDecodeError:
-                # FIXME: This may silently fail. Should log invalid session dumps.
-                return None
-            else:
-                return session
-        else:
+        if not session_dump:
+            return None
+
+        try:
+            session_data = json.loads(session_dump)
+            rsa_private = self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id))
+
+            return Session.from_dict(session_dict=session_data, rsa_private=rsa_private)
+        except (json.JSONDecodeError, AttributeError, TypeError) as e:
+            # Log the error if you have logging set up
+            logger.error(f"Failed to deserialize session {id}: {e}")
             return None
 
     def find_session_by_token(self, token: str) -> Optional[Session]:
-        session_id = self.redis.get(SessionManager.TOKENS.format(token=token))
+        session_id = int(self.redis.get(SessionManager.TOKENS.format(token=token)))
         if session_id:
-            return self.find_session_by_id(int(session_id))
+            # BUG: session_id из Redis приходит как bytes, нужно декодировать
+            return self.find_session_by_id(session_id)
         else:
             return None
 

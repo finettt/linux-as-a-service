@@ -1,7 +1,7 @@
 import rsa
 import uuid
 
-n_val = 8005186501273859401339992441661974480606907813508113919617996890637798184491989447874245491118254334962410075546665741190207922015778208339654413661181267  # Replace with 'n' from Postman
+n_val = 7460699476552039301260554868675223056623468105139796988525642387131795988518927704077606303864632639583981842893061332566500136811626100714069053321334883  # Replace with 'n' from Postman
 e_val = 65537
 
 
@@ -9,7 +9,7 @@ secret_key = str(uuid.uuid4())
 
 pub_key = rsa.PublicKey(n=n_val, e=e_val)
 
-cipher_bytes = rsa.encrypt(secret_key.encode('utf8'), pub_key)
+cipher_bytes = rsa.encrypt(secret_key.encode("utf8"), pub_key)
 hex_cipher = cipher_bytes.hex()
 
 # 5. Print the results. You will use these in Postman.
