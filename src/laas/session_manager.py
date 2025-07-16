@@ -91,11 +91,17 @@ class SessionManager:
         else:
             return {"error": f"Session {session_id} does not exist!"}
 
-    def find_session_by_id(self, id: int) -> Optional[Dict]:
+    def find_session_by_id(self, id: int) -> Optional[Session]:
         session_dump = self.redis.get(SessionManager.SESSIONS.format(id=id))
         if session_dump:
             try:
                 session = json.loads(session_dump)
+                session = Session.from_dict(
+                    session_dict=session,
+                    rsa_private=self.redis.get(
+                        SessionManager.PRIVATE_KEYS.format(id=session.get("id"))
+                    ),
+                )
             except json.decoder.JSONDecodeError:
                 # FIXME: This may silently fail. Should log invalid session dumps.
                 return None
@@ -104,7 +110,7 @@ class SessionManager:
         else:
             return None
 
-    def find_session_by_token(self, token: str) -> Optional[Dict]:
+    def find_session_by_token(self, token: str) -> Optional[Session]:
         session_id = self.redis.get(SessionManager.TOKENS.format(token=token))
         if session_id:
             return self.find_session_by_id(int(session_id))
