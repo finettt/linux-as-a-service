@@ -75,10 +75,6 @@ class SessionManager:
         else:
             return {
                 "error": f"Session {session_id} does not exist!",
-                "data": json.loads(
-                    self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id))
-                ),
-                "id": session_id,
             }
 
     def auth_session(self, session_id: int, encoded_jwt: str):
@@ -97,8 +93,6 @@ class SessionManager:
         else:
             return {
                 "error": f"Session {session_id} does not exist!",
-                "data": session_dump,
-                "id": session_id,
             }
 
     def find_session_by_id(self, id: int) -> Optional[Session]:
@@ -108,9 +102,22 @@ class SessionManager:
 
         try:
             session_data = json.loads(session_dump)
-            rsa_private = self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id))
-
-            return Session.from_dict(session_dict=session_data, rsa_private=rsa_private)
+            if self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id)):
+                rsa_private = json.loads(
+                    self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id))
+                )
+                rsa_private = rsa.PrivateKey(
+                    rsa_private["n"],
+                    rsa_private["e"],
+                    rsa_private["d"],
+                    rsa_private["p"],
+                    rsa_private["q"],
+                )
+            else:
+                rsa_private = None
+            session = Session(0)
+            session.from_dict(session_dict=session_data, rsa_private=rsa_private)
+            return session
         except (json.JSONDecodeError, AttributeError, TypeError) as e:
             # Log the error if you have logging set up
             logger.error(f"Failed to deserialize session {id}: {e}")
