@@ -1,3 +1,4 @@
 # TODO list
 
-1. Rewrite `session_manager.py` to Redis DB
+1. rewrite `session_manager` to SRP
+2. rewrite `session_manager` to UUIDv7
