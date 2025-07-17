@@ -1,12 +1,12 @@
 import json
 import logging
-from typing import Dict, Optional, Union
+from typing import Union, Optional
+from uuid import uuid4
 from src.laas.exceptions.AnotherKeyError import AnotherKeyError
 from src.laas.session import Session
 import redis
 import rsa
 
-# BUG: Неправильная инициализация логгера - нужно использовать logging.getLogger()
 logger = logging.getLogger("my_logger")
 
 
@@ -16,25 +16,21 @@ class SessionManager:
     TOKENS = "laas:token:{token}"
     PRIVATE_KEYS = "laas:private_key:{id}"
     PRIVATE_KEY_TTL = 300
-    # BUG: RSA ключ 512 бит крайне небезопасен, минимум 2048 (как указано в FIXME)
-    RSA_KEY_SIZE = 512  # FIXME: Increase RSA key to 2048
+    RSA_KEY_SIZE = 512
 
     def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
 
-    def get_free_id(self) -> int:
-        # BUG: Потенциальная race condition - между получением ID и созданием сессии
-        # другой процесс может использовать тот же ID
-        next_id = self.redis.incr(SessionManager.SESSION_COUNTER)
-        return next_id
+    def get_free_id(self) -> str:
+        return str(uuid4())
 
-    def request_session(self) -> Dict[str, Union[int, Dict[str, int]]]:
-        free_id = self.get_free_id()
+    def request_session(self) -> dict[str, Union[str, dict[str, int]]]:
+        free_id: str = self.get_free_id()
         new_session = Session(id=free_id)
         (publicKey, privateKey) = rsa.newkeys(SessionManager.RSA_KEY_SIZE)
         new_session.set_rsa_private(privateKey)
         self.__append_session(new_session)
-        publicKey_json = {"n": publicKey.n, "e": publicKey.e}
+        publicKey_json: dict[str, int] = {"n": publicKey.n, "e": publicKey.e}
         return {"id": free_id, "pubKey": publicKey_json}
 
     def __delete_session(self, session: Session):
@@ -42,11 +38,10 @@ class SessionManager:
         if token:
             self.redis.delete(SessionManager.TOKENS.format(token=token))
         self.redis.delete(SessionManager.SESSIONS.format(id=session.id))
-        # BUG: Не удаляется приватный ключ из PRIVATE_KEYS
         return True
 
-    def register_session(self, session_id: int, username: str, hex_cipher: str):
-        session_dump: Session = self.find_session_by_id(int(session_id))
+    def register_session(self, session_id: str, username: str, hex_cipher: str):
+        session_dump: Session = self.find_session_by_id(str(session_id))
         if session_dump is not None:
             session = session_dump
             try:
@@ -56,7 +51,7 @@ class SessionManager:
 
             session.set_secret_key(secret_key=secret_key)
 
-            data = {
+            data: dict[str, str] = {
                 "id": session_id,
                 "token": session.generate_token(username=username),
             }
@@ -77,7 +72,7 @@ class SessionManager:
                 "error": f"Session {session_id} does not exist!",
             }
 
-    def auth_session(self, session_id: int, encoded_jwt: str):
+    def auth_session(self, session_id: str, encoded_jwt: str):
         session_dump = self.find_session_by_id(session_id)
 
         if session_dump is not None:
@@ -87,7 +82,6 @@ class SessionManager:
                 return {"auth": "Session auth success!"}
             elif val_result.get("error") == "Session has expired!":
                 self.__delete_session(session)
-                # BUG: Нет return после удаления сессии - код продолжит выполнение
             else:
                 return val_result
         else:
@@ -95,17 +89,16 @@ class SessionManager:
                 "error": f"Session {session_id} does not exist!",
             }
 
-    def find_session_by_id(self, id: int) -> Optional[Session]:
+    def find_session_by_id(self, id: str) -> Optional[Session]:
         session_dump = self.redis.get(SessionManager.SESSIONS.format(id=id))
         if not session_dump:
             return None
 
         try:
             session_data = json.loads(session_dump)
-            if self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id)):
-                rsa_private = json.loads(
-                    self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id))
-                )
+            rsa_private_dump = self.redis.get(SessionManager.PRIVATE_KEYS.format(id=id))
+            if rsa_private_dump:
+                rsa_private = json.loads(rsa_private_dump)
                 rsa_private = rsa.PrivateKey(
                     rsa_private["n"],
                     rsa_private["e"],
@@ -115,18 +108,17 @@ class SessionManager:
                 )
             else:
                 rsa_private = None
-            session = Session(0)
+            session = Session("")
             session.from_dict(session_dict=session_data, rsa_private=rsa_private)
             return session
         except (json.JSONDecodeError, AttributeError, TypeError) as e:
-            # Log the error if you have logging set up
             logger.error(f"Failed to deserialize session {id}: {e}")
             return None
 
     def find_session_by_token(self, token: str) -> Optional[Session]:
-        session_id = int(self.redis.get(SessionManager.TOKENS.format(token=token)))
+        session_id: bytes = self.redis.get(SessionManager.TOKENS.format(token=token))
         if session_id:
-            # BUG: session_id из Redis приходит как bytes, нужно декодировать
+            session_id = session_id.decode()
             return self.find_session_by_id(session_id)
         else:
             return None

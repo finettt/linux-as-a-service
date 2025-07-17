@@ -20,9 +20,9 @@ class Session:
     # FIXME: Небезопасное преобразование типа - используйте float(os.getenv(...)) с обработкой исключений
     session_ttl = float(os.getenv("SESSION_TTL")) or 0.5
 
-    def __init__(self, id: int):
-        if type(id) is not int:
-            raise TypeError("Type of id might be int!")
+    def __init__(self, id: str):
+        if type(id) is not str:
+            raise TypeError("Type of id might be str!")
         self.__rsa_private = ""
         self.id = id
         self.__token = ""
