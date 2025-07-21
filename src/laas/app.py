@@ -1,22 +1,21 @@
 from functools import wraps
-import os
 from typing import Dict, Optional
 from flask import Flask, jsonify, request
 from src.laas.session import Session
 from src.laas.session_manager import SessionManager
+from src.laas.cfgloader import CfgLoader
 from redis import Redis
-from dotenv import load_dotenv
 
-load_dotenv()
-
+config = CfgLoader("/app/config.yaml")
+config.load_config()
 
 app = Flask(__name__)
 redis = Redis(
-    "redis",
-    6379,
-    0,
-    username=os.getenv("REDIS_USER"),
-    password=os.getenv("REDIS_USER_PASSWORD"),
+    config.get("database.host"),
+    config.get("database.port"),
+    config.get("database.database"),
+    username=config.get("database.user"),
+    password=config.get("database.password"),
 )
 session_mgr = SessionManager(redis_client=redis)
 
@@ -37,7 +36,7 @@ def auth_required(func):
             return jsonify({"error": "Invalid authentication token"}), 401
 
         res = session_mgr.auth_session(
-            session_id=int(session.id), encoded_jwt=jwt_token
+            session_id=str(session.id), encoded_jwt=jwt_token
         )
         if "error" in res:
             return jsonify({"error": "Authentication failed"}), 401

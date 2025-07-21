@@ -1,5 +1,4 @@
-# FIXME: Для Python 3.9+ используйте встроенный dict. Для обратной совместимости оставлено.
-from typing import Dict
+from src.laas.cfgloader import CfgLoader
 from src.laas.exceptions.AnotherKeyError import AnotherKeyError
 from src.laas.history import History
 from src.laas.utils.execute_command import execute_command
@@ -11,14 +10,13 @@ import rsa
 
 import os
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
 
-load_dotenv()
+config = CfgLoader("/app/config.yaml")
+config.load_config()
 
 
 class Session:
-    # FIXME: Небезопасное преобразование типа - используйте float(os.getenv(...)) с обработкой исключений
-    session_ttl = float(os.getenv("SESSION_TTL")) or 0.5
+    session_ttl = config.get("session_ttl") or 0.5
 
     def __init__(self, id: str):
         if type(id) is not str:
@@ -115,7 +113,7 @@ class Session:
             "n": self.__rsa_private.n,
         }
 
-    def from_dict(self, session_dict: Dict, rsa_private):
+    def from_dict(self, session_dict: dict, rsa_private):
         self.id: int = session_dict.get("id")
         self.__token = session_dict.get("token")
         self.__secret_key = session_dict.get("secret")
